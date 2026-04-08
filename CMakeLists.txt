@@ -21,7 +21,7 @@ endif()
 # Set the project name
 set(CMAKE_PROJECT_NAME stm32f411_cli)
 
-add_compile_options(-Wall -Wextra -Wunused-variable)
+add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
 
 # Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
