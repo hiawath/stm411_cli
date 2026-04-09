@@ -52,6 +52,8 @@ void apInit(void)
 {
     cliInit(); // CLI 엔진 기본 세팅
     cliAdd("led", cliLed); // "터미널에서 led 치면 cliLed 함수 실행해 줘" 등록
+    cliAdd("info", cliInfo);
+    cliAdd("sys", cliSys);
 }
 
 void apMain(void)

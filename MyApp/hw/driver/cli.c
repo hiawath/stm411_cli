@@ -93,6 +93,8 @@ void cliMain(void)
         }
         else {
              // 일반 글자 담기 로직
+             cli_line_buf[cli_line_idx] = rx_data;
+             cli_line_idx++;
         }
     }
 }
