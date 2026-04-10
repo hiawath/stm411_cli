@@ -86,12 +86,22 @@ void cliMain(void)
     {
         uint8_t rx_data = uartRead(0);
         if (rx_data == '\r') {
+             cliPrintf("\r\n"); // 엔터 치면 줄바꿈 적용
              cli_line_buf[cli_line_idx] = '\0';
              cliParseArgs(cli_line_buf); // 같은 cli.c 내부이므로 문제 없이 접근 가능!!
              cliRunCommand();
+             
+             cliPrintf("CLI> "); // 다음 입력을 위한 프롬프트 출력
              cli_line_idx = 0;
         }
+        else if (rx_data == '\b' || rx_data == 127) { // 백스페이스 처리 (선택사항이나 있으면 아주 편리함)
+             if (cli_line_idx > 0) {
+                 cliPrintf("\b \b"); // 화면에서 한 글자 지움
+                 cli_line_idx--;
+             }
+        }
         else {
+             cliPrintf("%c", rx_data); // 내가 친 글자를 그대로 다시 쏴줌 (Echo)
              // 일반 글자 담기 로직
              cli_line_buf[cli_line_idx] = rx_data;
              cli_line_idx++;
