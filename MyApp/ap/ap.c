@@ -43,7 +43,12 @@ void cliSys(uint8_t argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "reset") == 0)
     {
+        cliPrintf("System Reset\r\n");
         NVIC_SystemReset(); // ARM Cortex-M 자체 리셋 함수
+    }
+    else
+    {
+        cliPrintf("Usage: sys [reset]\r\n");
     }
 }
 

@@ -35,6 +35,7 @@ bool uartOpen(uint8_t ch, uint32_t baud) {
         return false;
       }
 
+      HAL_UART_Transmit(&huart2, (uint8_t *)"UART Reopened\r\n", 16, 100);
       // 수신 인터럽트 다시 활성화
       HAL_UART_Receive_IT(&huart2, &rx_data, 1);
     }
