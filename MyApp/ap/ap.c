@@ -30,13 +30,28 @@ void cliLed(uint8_t argc, char **argv)
 }
 void cliInfo(uint8_t argc, char **argv)
 {
-    if (argc == 2 && strcmp(argv[1], "uptime") == 0)
+    if (argc == 1) // 인자가 없을 때 기본 정보 출력
+    {
+        cliPrintf("====================================\r\n");
+        cliPrintf(" HW Model   : STM32F411\r\n");
+        cliPrintf(" FW Version : V1.0.0\r\n");
+        cliPrintf(" Build Date : %s %s\r\n", __DATE__, __TIME__);
+        
+        // STM32 Unique ID 레지스터 주소 (F411 기준)
+        uint32_t uid0 = *(volatile uint32_t*)0x1FFF7A10;
+        uint32_t uid1 = *(volatile uint32_t*)0x1FFF7A14;
+        uint32_t uid2 = *(volatile uint32_t*)0x1FFF7A18;
+        cliPrintf(" Serial Num : %08X-%08X-%08X\r\n", uid0, uid1, uid2);
+        cliPrintf("====================================\r\n");
+    }
+    else if (argc == 2 && strcmp(argv[1], "uptime") == 0)
     {
         cliPrintf("System Uptime: %d ms\r\n", millis());
     }
     else
     {
-        cliPrintf("info uptime\r\n");
+        cliPrintf("Usage: info\r\n");
+        cliPrintf("       info uptime\r\n");
     }
 }
 void cliSys(uint8_t argc, char **argv)
