@@ -2,6 +2,50 @@
 #include "hw.h"
 #include "hw_def.h"
 #include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+void cliGpio(uint8_t argc, char **argv)
+{
+    if (argc >= 3)
+    {
+        // argv[1]: "read" 또는 "write"
+        // argv[2]: 핀 이름 (예: "a5", "b12")
+        char port_char = tolower(argv[2][0]); // 첫 글자를 소문자로 ('a' ~ 'h')
+        int pin_num = atoi(&argv[2][1]);      // 두 번째 글자부터는 숫자로 변환 (0~15)
+        
+        uint8_t port_idx = port_char - 'a'; // 'a'는 0, 'b'는 1 ...
+        
+        if (strcmp(argv[1], "read") == 0)
+        {
+            int8_t state = gpioExtRead(port_idx, pin_num);
+            if (state < 0) {
+                cliPrintf("Invalid Port or Pin (ex: a5, b12)\r\n");
+            } else {
+                cliPrintf("GPIO %c%d = %d\r\n", toupper(port_char), pin_num, state);
+            }
+        }
+        else if (strcmp(argv[1], "write") == 0 && argc == 4)
+        {
+            int val = atoi(argv[3]);
+            if (gpioExtWrite(port_idx, pin_num, val)) {
+                cliPrintf("GPIO %c%d Set to %d\r\n", toupper(port_char), pin_num, val ? 1 : 0);
+            } else {
+                cliPrintf("Invalid Port or Pin (ex: a5, b12)\r\n");
+            }
+        }
+        else
+        {
+            cliPrintf("Usage: gpio read [a~h][0~15]\r\n");
+            cliPrintf("       gpio write [a~h][0~15] [0/1]\r\n");
+        }
+    }
+    else
+    {
+        cliPrintf("Usage: gpio read [a~h][0~15]\r\n");
+        cliPrintf("       gpio write [a~h][0~15] [0/1]\r\n");
+    }
+}
 
 void cliLed(uint8_t argc, char **argv)
 {
@@ -74,6 +118,7 @@ void apInit(void)
     cliAdd("led", cliLed); // "터미널에서 led 치면 cliLed 함수 실행해 줘" 등록
     cliAdd("info", cliInfo);
     cliAdd("sys", cliSys);
+    cliAdd("gpio", cliGpio); // GPIO 읽기/쓰기 커맨드 등록
 }
 
 void apMain(void)
