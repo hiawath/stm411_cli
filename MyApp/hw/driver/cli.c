@@ -221,6 +221,8 @@ bool cliAdd(const char *cmd_str, void (*cmd_func)(uint8_t argc, char **argv))
 }
 
 static void cliHelp(uint8_t argc, char **argv);
+static void cliClear(uint8_t argc, char **argv); // cls 함수 프로토타입 추가
+
 // CLI 전체 초기화 함수
 void cliInit(void)
 {
@@ -230,6 +232,7 @@ void cliInit(void)
     
     // 2. 운영체제의 'help' 또는 '?' 처럼, 가장 기본이 되는 명령어를 자동 등록
     cliAdd("help", cliHelp);
+    cliAdd("cls", cliClear); // cls 명령어 등록
 }
 // 기본 제공되는 help 명령어의 실제 동작
 static void cliHelp(uint8_t argc, char **argv)
@@ -243,4 +246,12 @@ static void cliHelp(uint8_t argc, char **argv)
     }
     
     cliPrintf("--------------------------------------------\r\n");
+}
+
+// 화면 지우기 (cls) 실제 동작
+static void cliClear(uint8_t argc, char **argv)
+{
+    // \x1B[2J : 터미널 화면 전체 지우기
+    // \x1B[H  : 커서를 맨 위 가장 좌측(Home)으로 이동
+    cliPrintf("\x1B[2J\x1B[H");
 }
