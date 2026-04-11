@@ -26,8 +26,13 @@ static char*     cli_argv[CLI_CMD_ARG_MAX];
 static char      cli_line_buf[CLI_LINE_BUF_MAX]; 
 static uint16_t  cli_line_idx = 0;
 
-static char      cli_hist_buf[CLI_LINE_BUF_MAX]; // 이전 명령어를 기억할 히스토리 버퍼
-static uint8_t   esc_state = 0;                  // 방향키(ANSI Escape) 파싱을 위한 상태 변수
+#define CLI_HIST_MAX 10
+static char      cli_hist_buf[CLI_HIST_MAX][CLI_LINE_BUF_MAX]; // 10개까지 기억하는 2차원 히스토리 버퍼
+static uint8_t   cli_hist_count = 0;   // 현재 저장된 히스토리 개수 (최대 10)
+static uint8_t   cli_hist_write = 0;   // 다음 데이터를 저장할 배열 인덱스
+static uint8_t   cli_hist_depth = 0;   // 위/아래 방향키를 누를 때 어느 과거를 보고 있는지 추적하는 변수
+
+static uint8_t   esc_state = 0;        // 방향키(ANSI Escape) 파싱을 위한 상태 변수
 
 void cliPrintf(char *fmt, ...)
 {
@@ -105,7 +110,10 @@ void cliMain(void)
                      cli_line_buf[cli_line_idx] = '\0';
                      
                      // 실행하기 전에 히스토리 버퍼에 복사 (기록)
-                     strncpy(cli_hist_buf, cli_line_buf, CLI_LINE_BUF_MAX - 1);
+                     strncpy(cli_hist_buf[cli_hist_write], cli_line_buf, CLI_LINE_BUF_MAX - 1);
+                     cli_hist_write = (cli_hist_write + 1) % CLI_HIST_MAX; // 인덱스를 0~9 빙글빙글 돌리기
+                     if (cli_hist_count < CLI_HIST_MAX) cli_hist_count++;
+                     cli_hist_depth = 0; // 엔터를 치면 탐색 깊이 초기화
                      
                      cliParseArgs(cli_line_buf); 
                      cliRunCommand();
@@ -142,19 +150,47 @@ void cliMain(void)
         {
             if (rx_data == 'A') // 위 화살표
             {
-                // 현재 터미널 화면에서 타이핑 중이던 글자 모두 지우기
-                for(int i = 0; i < cli_line_idx; i++) {
-                    cliPrintf("\b \b");
+                if (cli_hist_depth < cli_hist_count) 
+                {
+                    cli_hist_depth++; // 한 단계 더 과거로
+                    
+                    // 현재 터미널 화면에서 타이핑 중이던 글자 모두 지우기
+                    for(int i = 0; i < cli_line_idx; i++) {
+                        cliPrintf("\b \b");
+                    }
+                    
+                    // 원형 큐 구조에서 과거의 인덱스 계산
+                    int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
+                    
+                    strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
+                    cli_line_idx = strlen(cli_line_buf);
+                    
+                    cliPrintf("%s", cli_line_buf);
                 }
-                
-                // 히스토리 버퍼의 내용을 현재 라인 버퍼로 복사
-                strncpy(cli_line_buf, cli_hist_buf, CLI_LINE_BUF_MAX - 1);
-                cli_line_idx = strlen(cli_line_buf);
-                
-                // 터미널 화면에 옛날 명령어 뿌리기
-                cliPrintf("%s", cli_line_buf);
             }
-            // (필요 시 아래 화살표 'B'를 눌렀을 때 버퍼를 비워주는 등 기능 추가 가능)
+            else if (rx_data == 'B') // 아래 화살표
+            {
+                if (cli_hist_depth > 0)
+                {
+                    cli_hist_depth--; // 다시 미래(최신) 쪽으로 
+                    
+                    for(int i = 0; i < cli_line_idx; i++) {
+                        cliPrintf("\b \b");
+                    }
+                    
+                    if (cli_hist_depth == 0) {
+                        // 가장 최신 상태 (입력하던 줄)로 왔다면 빈 칸으로
+                        cli_line_buf[0] = '\0';
+                        cli_line_idx = 0;
+                    } else {
+                        // 중간 깊이일 경우 해당 히스토리 출력
+                        int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
+                        strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
+                        cli_line_idx = strlen(cli_line_buf);
+                        cliPrintf("%s", cli_line_buf);
+                    }
+                }
+            }
             
             esc_state = 0; // 처리 완료 후 다시 일반 문자 모드로
         }
