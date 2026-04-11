@@ -26,6 +26,9 @@ static char*     cli_argv[CLI_CMD_ARG_MAX];
 static char      cli_line_buf[CLI_LINE_BUF_MAX]; 
 static uint16_t  cli_line_idx = 0;
 
+static char      cli_hist_buf[CLI_LINE_BUF_MAX]; // 이전 명령어를 기억할 히스토리 버퍼
+static uint8_t   esc_state = 0;                  // 방향키(ANSI Escape) 파싱을 위한 상태 변수
+
 void cliPrintf(char *fmt, ...)
 {
     char buf[256];
@@ -85,26 +88,75 @@ void cliMain(void)
     if (uartAvailable(0) > 0)
     {
         uint8_t rx_data = uartRead(0);
-        if (rx_data == '\r') {
-             cliPrintf("\r\n"); // 엔터 치면 줄바꿈 적용
-             cli_line_buf[cli_line_idx] = '\0';
-             cliParseArgs(cli_line_buf); // 같은 cli.c 내부이므로 문제 없이 접근 가능!!
-             cliRunCommand();
-             
-             cliPrintf("CLI> "); // 다음 입력을 위한 프롬프트 출력
-             cli_line_idx = 0;
+        
+        // 1. 일반 문자 입력 상태 (방향키 등의 ESC 시퀀스가 아닐 때)
+        if (esc_state == 0) 
+        {
+            if (rx_data == 0x1B) // ESC 키값 수신 (방향키의 시작)
+            {
+                esc_state = 1;
+            }
+            else if (rx_data == '\r') // 엔터키
+            {
+                 cliPrintf("\r\n"); 
+                 
+                 if (cli_line_idx > 0) 
+                 {
+                     cli_line_buf[cli_line_idx] = '\0';
+                     
+                     // 실행하기 전에 히스토리 버퍼에 복사 (기록)
+                     strncpy(cli_hist_buf, cli_line_buf, CLI_LINE_BUF_MAX - 1);
+                     
+                     cliParseArgs(cli_line_buf); 
+                     cliRunCommand();
+                 }
+                 
+                 cliPrintf("CLI> ");
+                 cli_line_idx = 0;
+            }
+            else if (rx_data == '\b' || rx_data == 127) // 백스페이스
+            {
+                 if (cli_line_idx > 0) {
+                     cliPrintf("\b \b"); 
+                     cli_line_idx--;
+                 }
+            }
+            else // 일반 문자 수신
+            {
+                 // 버퍼 오버플로우 방지
+                 if (cli_line_idx < CLI_LINE_BUF_MAX - 1) {
+                     cliPrintf("%c", rx_data); 
+                     cli_line_buf[cli_line_idx] = rx_data;
+                     cli_line_idx++;
+                 }
+            }
         }
-        else if (rx_data == '\b' || rx_data == 127) { // 백스페이스 처리 (선택사항이나 있으면 아주 편리함)
-             if (cli_line_idx > 0) {
-                 cliPrintf("\b \b"); // 화면에서 한 글자 지움
-                 cli_line_idx--;
-             }
+        // 2. ESC[ 상태 트리거 여부 확인
+        else if (esc_state == 1) 
+        {
+            if (rx_data == '[') esc_state = 2;
+            else esc_state = 0; // 이상한 값이면 상태 초기화
         }
-        else {
-             cliPrintf("%c", rx_data); // 내가 친 글자를 그대로 다시 쏴줌 (Echo)
-             // 일반 글자 담기 로직
-             cli_line_buf[cli_line_idx] = rx_data;
-             cli_line_idx++;
+        // 3. 마지막 방향키 판별 (A: 위, B: 아래, C: 우, D: 좌)
+        else if (esc_state == 2) 
+        {
+            if (rx_data == 'A') // 위 화살표
+            {
+                // 현재 터미널 화면에서 타이핑 중이던 글자 모두 지우기
+                for(int i = 0; i < cli_line_idx; i++) {
+                    cliPrintf("\b \b");
+                }
+                
+                // 히스토리 버퍼의 내용을 현재 라인 버퍼로 복사
+                strncpy(cli_line_buf, cli_hist_buf, CLI_LINE_BUF_MAX - 1);
+                cli_line_idx = strlen(cli_line_buf);
+                
+                // 터미널 화면에 옛날 명령어 뿌리기
+                cliPrintf("%s", cli_line_buf);
+            }
+            // (필요 시 아래 화살표 'B'를 눌렀을 때 버퍼를 비워주는 등 기능 추가 가능)
+            
+            esc_state = 0; // 처리 완료 후 다시 일반 문자 모드로
         }
     }
 }
