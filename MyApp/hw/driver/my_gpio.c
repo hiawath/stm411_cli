@@ -4,12 +4,12 @@
 static GPIO_TypeDef* getPortPtr(uint8_t port_idx)
 {
     switch(port_idx) {
-        case 0: return GPIOA;
-        case 1: return GPIOB;
-        case 2: return GPIOC;
-        case 3: return GPIOD;
-        case 4: return GPIOE;
-        case 7: return GPIOH; // STM32F411은 보통 A~E, H 핀이 있습니다
+        case 0: __HAL_RCC_GPIOA_CLK_ENABLE(); return GPIOA;
+        case 1: __HAL_RCC_GPIOB_CLK_ENABLE(); return GPIOB;
+        case 2: __HAL_RCC_GPIOC_CLK_ENABLE(); return GPIOC;
+        case 3: __HAL_RCC_GPIOD_CLK_ENABLE(); return GPIOD;
+        case 4: __HAL_RCC_GPIOE_CLK_ENABLE(); return GPIOE;
+        case 7: __HAL_RCC_GPIOH_CLK_ENABLE(); return GPIOH;
         default: return NULL;
     }
 }
