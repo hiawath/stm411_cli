@@ -114,11 +114,17 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+  // 기본 생성된 루프 대신 우리의 애플리케이션 메인 함수를 실행합니다.
+  
+  #include "ap.h"
+  hwInit();
+  apInit();
+
+  apMain();
+  
+  // apMain() 내부에서 while(1)을 돌기 때문에 여기까지 코드가 내려오지 않습니다.
+  // 만약 루프가 종료된다면 현재 태스크를 조용히 삭제합니다.
+  osThreadTerminate(NULL);
   /* USER CODE END StartDefaultTask */
 }
 

@@ -91,10 +91,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  #include "ap.h"
-  hwInit();
-  apInit();
-  apMain();
+
 
   /* USER CODE END 2 */
 

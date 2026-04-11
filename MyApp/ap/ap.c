@@ -127,29 +127,51 @@ void cliMd(uint8_t argc, char **argv)
     }
 }
 
+static uint32_t led_toggle_period = 0; // 0이면 자동 점멸 중지 상태
+
 void cliLed(uint8_t argc, char **argv)
 {
-    if (argc == 2)
+    if (argc >= 2)
     {
         if (strcmp(argv[1], "on") == 0)
         {
+            led_toggle_period = 0; // 동작 중지
             ledOn();
             cliPrintf("LED ON\r\n");
         }
         else if (strcmp(argv[1], "off") == 0)
         {
+            led_toggle_period = 0; // 동작 중지
             ledOff();
             cliPrintf("LED OFF\r\n");
         }
         else if (strcmp(argv[1], "toggle") == 0)
         {
-            ledToggle();
-            cliPrintf("LED TOGGLED\r\n");
+            if (argc == 3) 
+            {
+                // 주기적인 자동 토글 모드 (예: led toggle 1000)
+                int period = atoi(argv[2]);
+                if (period > 0) {
+                    led_toggle_period = period;
+                    cliPrintf("LED Auto-Toggle Started (%d ms)\r\n", period);
+                } else {
+                    cliPrintf("Invalid Period\r\n");
+                }
+            } 
+            else 
+            {
+                // 단발성 토글 모드 (예: led toggle)
+                led_toggle_period = 0; // 기존의 자동 점멸 태스크를 멈춤
+                ledToggle();
+                cliPrintf("LED TOGGLED ONCE\r\n");
+            }
         }
     }
     else
     {
-        cliPrintf("Usage: led [on|off|toggle]\r\n");
+        cliPrintf("Usage: led [on|off]\r\n");
+        cliPrintf("       led toggle\r\n");
+        cliPrintf("       led toggle [period_ms]\r\n");
     }
 }
 void cliInfo(uint8_t argc, char **argv)
@@ -225,17 +247,41 @@ void apInit(void)
     cliAdd("button", cliButton); // 버튼 보고 제어 등록
 }
 
+#include "cmsis_os.h"
+
+// 📌 백그라운드 시스템 태스크 (LED 점멸 등)
+void ledSystemTask(void *argument) 
+{
+    while(1) {
+        if (led_toggle_period > 0) {
+            // 사용자가 주기를 지시했을 때만 작동
+            ledToggle();
+            osDelay(led_toggle_period); 
+        } else {
+            // 멈춤(0) 상태일 때는 다른 태스크에 방해 안되게 무한히 쉬면서 지시 대기
+            osDelay(50);
+        }
+    }
+}
+
 void apMain(void)
 {
-    // 무한 루프
+    // 1. 부가적인 태스크들을 동적으로 생성하여 OS 스케줄러에 등록
+    osThreadAttr_t led_attr = {0};
+    led_attr.name = "LED_Task";
+    led_attr.stack_size = 128 * 4;                 // 128 Words 할당
+    led_attr.priority = osPriorityBelowNormal;     // 메인 CLI 보다는 낮은 우선순위
+    
+    osThreadNew(ledSystemTask, NULL, &led_attr);
+
+    // 센서 감지, 통신 등 여러 기능이 있다면 여기서 전부 `osThreadNew`로 찍어냅니다.
+
+    // 2. 부트스트랩 목적으로 실행된 현재 태스크는 이제 완전히 "CLI 전용 태스크"로 역할이 전환됩니다.
     while(1)
     {
-        // ap.c는 키보드가 눌렸는지, 버퍼가 몇 개인지 관심이 없습니다.
-        // 그냥 매 루프마다 cli 모듈에게 "너 할일 해!" 라며 함수만 넘겨줍니다.
         cliMain(); 
         
-        // 만약 CLI 외에 CAN 통신이나 모터 제어가 있다면 여기에 추가
-        // canMain();
-        // motorMain();
+        // RTOS 환경이므로, 1ms 쉬면서 다른 하위 시스템들이 CPU를 잡을 수 있는 양보의 틈을 마련해줍니다.
+        osDelay(1);
     }
 }
