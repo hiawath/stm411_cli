@@ -47,6 +47,86 @@ void cliGpio(uint8_t argc, char **argv)
     }
 }
 
+// 유효한 메모리 영역인지 검사하는 보호 함수
+static bool isSafeAddress(uint32_t addr)
+{
+    // 1. STM32F411 Flash (보통 512KB: 0x0800 0000 ~ 0x0807 FFFF)
+    if (addr >= 0x08000000 && addr <= 0x0807FFFF) return true;
+    
+    // 2. STM32F411 SRAM (보통 128KB: 0x2000 0000 ~ 0x2001 FFFF)
+    if (addr >= 0x20000000 && addr <= 0x2001FFFF) return true;
+    
+    // 3. System Memory 영역 (부트로더 및 공장 출고 UID 영역 등)
+    if (addr >= 0x1FFF0000 && addr <= 0x1FFF7A1F) return true;
+    
+    // 4. Peripheral 레지스터 영역 (0x40000000 부터 시작)
+    // 주의: 유효한 영역이라도 클럭이 꺼져있으면 Bus Fault가 나지만, 허용은 해둡니다.
+    if (addr >= 0x40000000 && addr <= 0x5FFFFFFF) return true;
+    
+    // 그 외에 아무것도 매핑되지 않은 주소는 접근 불가 타겟으로 간주하여 차단
+    return false;
+}
+
+// 메모리 덤프 (Memory Dump) 명령어
+void cliMd(uint8_t argc, char **argv)
+{
+    if (argc >= 2)
+    {
+        uint32_t addr = strtoul(argv[1], NULL, 16);
+        uint32_t length = 16; 
+        
+        if (argc >= 3) {
+            length = strtoul(argv[2], NULL, 0); 
+        }
+        
+        // 16바이트씩 단위로 루프
+        for (uint32_t i = 0; i < length; i += 16)
+        {
+            cliPrintf("0x%08X : ", addr + i);
+            
+            for (uint32_t j = 0; j < 16; j++)
+            {
+                if (i + j < length) {
+                    uint32_t target_addr = addr + i + j;
+                    
+                    // Bus Fault 방지용 메모리 맵 유효성 검사
+                    if (isSafeAddress(target_addr)) {
+                        uint8_t val = *((volatile uint8_t *)target_addr);
+                        cliPrintf("%02X ", val);
+                    } else {
+                        // 읽기 금지 구역은 ?? 로 출력
+                        cliPrintf("?? ");
+                    }
+                } else {
+                    cliPrintf("   ");
+                }
+            }
+            
+            cliPrintf(" | ");
+            
+            for (uint32_t j = 0; j < 16; j++)
+            {
+                if (i + j < length) {
+                    uint32_t target_addr = addr + i + j;
+                    if (isSafeAddress(target_addr)) {
+                        uint8_t val = *((volatile uint8_t *)target_addr);
+                        if (val >= 32 && val <= 126) cliPrintf("%c", val);
+                        else cliPrintf(".");
+                    } else {
+                        cliPrintf(".");
+                    }
+                }
+            }
+            cliPrintf("\r\n");
+        }
+    }
+    else
+    {
+        cliPrintf("Usage: md [addr(hex)] [length]\r\n");
+        cliPrintf("       md 08000000 32\r\n");
+    }
+}
+
 void cliLed(uint8_t argc, char **argv)
 {
     if (argc == 2)
@@ -119,6 +199,7 @@ void apInit(void)
     cliAdd("info", cliInfo);
     cliAdd("sys", cliSys);
     cliAdd("gpio", cliGpio); // GPIO 읽기/쓰기 커맨드 등록
+    cliAdd("md", cliMd); // 메모리 덤프 커맨드 등록
 }
 
 void apMain(void)

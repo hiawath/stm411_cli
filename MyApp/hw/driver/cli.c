@@ -24,7 +24,8 @@ static uint8_t   cli_cmd_count = 0;
 static uint8_t   cli_argc = 0; 
 static char*     cli_argv[CLI_CMD_ARG_MAX]; 
 static char      cli_line_buf[CLI_LINE_BUF_MAX]; 
-static uint16_t  cli_line_idx = 0;
+static uint16_t  cli_line_idx = 0; // 총 담긴 글자 수 저장
+static uint16_t  cli_cursor = 0;   // 현재 깜빡이는 논리적 커서 위치
 
 #define CLI_HIST_MAX 10
 static char      cli_hist_buf[CLI_HIST_MAX][CLI_LINE_BUF_MAX]; // 10개까지 기억하는 2차원 히스토리 버퍼
@@ -103,6 +104,8 @@ void cliMain(void)
             }
             else if (rx_data == '\r') // 엔터키
             {
+                 // 현재 커서가 문자 중간에 있다면 명령어 깨짐 방지를 위해 터미널 커서를 맨 끝으로 보냄
+                 for (int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
                  cliPrintf("\r\n"); 
                  
                  if (cli_line_idx > 0) 
@@ -121,21 +124,54 @@ void cliMain(void)
                  
                  cliPrintf("CLI> ");
                  cli_line_idx = 0;
+                 cli_cursor = 0;
             }
             else if (rx_data == '\b' || rx_data == 127) // 백스페이스
             {
-                 if (cli_line_idx > 0) {
-                     cliPrintf("\b \b"); 
+                 if (cli_cursor > 0) {
+                     // 1. 메모리 버퍼에서 문자 하나 지우고 앞으로 당기기
+                     for (int i = cli_cursor; i < cli_line_idx; i++) {
+                         cli_line_buf[i - 1] = cli_line_buf[i];
+                     }
                      cli_line_idx--;
+                     cli_cursor--;
+                     
+                     // 2. 터미널 화면 갱신: 한 칸 뒤로 간 뒤, 그 뒤의 문자들을 다시 출력
+                     cliPrintf("\b"); 
+                     for (int i = cli_cursor; i < cli_line_idx; i++) {
+                         cliPrintf("%c", cli_line_buf[i]);
+                     }
+                     cliPrintf(" "); // 제일 끝의 흔적 지우기
+                     
+                     // 3. 타자를 치기 위해 커서를 원래 있어야 할 자리로 복구
+                     for (int i = 0; i <= (cli_line_idx - cli_cursor); i++) {
+                         cliPrintf("\b");
+                     }
                  }
             }
             else // 일반 문자 수신
             {
-                 // 버퍼 오버플로우 방지
+                 // 중간 삽입(Insert) 가능 로직
                  if (cli_line_idx < CLI_LINE_BUF_MAX - 1) {
-                     cliPrintf("%c", rx_data); 
-                     cli_line_buf[cli_line_idx] = rx_data;
+                     // 1. 우측으로 배열 밀기 (새 글자가 들어갈 공간 확보)
+                     for (int i = cli_line_idx; i > cli_cursor; i--) {
+                         cli_line_buf[i] = cli_line_buf[i - 1];
+                     }
+                     
+                     // 2. 입력받은 문자를 커서 위치에 바로 박아넣음
+                     cli_line_buf[cli_cursor] = rx_data;
                      cli_line_idx++;
+                     cli_cursor++;
+                     
+                     // 3. 밀어낸 글자들을 포함하여 화면 다시 그리기
+                     for (int i = cli_cursor - 1; i < cli_line_idx; i++) {
+                         cliPrintf("%c", cli_line_buf[i]);
+                     }
+                     
+                     // 4. 다시 글자를 치던 원래 커서 위치로 복귀
+                     for (int i = 0; i < (cli_line_idx - cli_cursor); i++) {
+                         cliPrintf("\b");
+                     }
                  }
             }
         }
@@ -145,25 +181,29 @@ void cliMain(void)
             if (rx_data == '[') esc_state = 2;
             else esc_state = 0; // 이상한 값이면 상태 초기화
         }
-        // 3. 마지막 방향키 판별 (A: 위, B: 아래, C: 우, D: 좌)
+        // 3. 방향키 판별 (A: 위, B: 아래, C: 우, D: 좌)
         else if (esc_state == 2) 
         {
+            if (rx_data == 'A' || rx_data == 'B') 
+            {
+                // 글자를 지우거나 덮어쓰기 위해, 커서가 중간에 있다면 맨 뒤로 밀어줍니다.
+                for(int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
+                cli_cursor = cli_line_idx; // 동기화
+            }
+            
             if (rx_data == 'A') // 위 화살표
             {
                 if (cli_hist_depth < cli_hist_count) 
                 {
                     cli_hist_depth++; // 한 단계 더 과거로
                     
-                    // 현재 터미널 화면에서 타이핑 중이던 글자 모두 지우기
-                    for(int i = 0; i < cli_line_idx; i++) {
-                        cliPrintf("\b \b");
-                    }
+                    for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
                     
-                    // 원형 큐 구조에서 과거의 인덱스 계산
                     int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
                     
                     strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
                     cli_line_idx = strlen(cli_line_buf);
+                    cli_cursor = cli_line_idx; // 불러온 다음 커서는 맨 끝에 위치
                     
                     cliPrintf("%s", cli_line_buf);
                 }
@@ -174,21 +214,33 @@ void cliMain(void)
                 {
                     cli_hist_depth--; // 다시 미래(최신) 쪽으로 
                     
-                    for(int i = 0; i < cli_line_idx; i++) {
-                        cliPrintf("\b \b");
-                    }
+                    for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
                     
                     if (cli_hist_depth == 0) {
-                        // 가장 최신 상태 (입력하던 줄)로 왔다면 빈 칸으로
                         cli_line_buf[0] = '\0';
                         cli_line_idx = 0;
+                        cli_cursor = 0;
                     } else {
-                        // 중간 깊이일 경우 해당 히스토리 출력
                         int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
                         strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
                         cli_line_idx = strlen(cli_line_buf);
+                        cli_cursor = cli_line_idx;
                         cliPrintf("%s", cli_line_buf);
                     }
+                }
+            }
+            else if (rx_data == 'D') // 왼쪽 화살표
+            {
+                if (cli_cursor > 0) {
+                    cli_cursor--;
+                    cliPrintf("\x1B[D"); // 터미널 상의 화면 커서를 왼쪽으로 이동
+                }
+            }
+            else if (rx_data == 'C') // 오른쪽 화살표
+            {
+                if (cli_cursor < cli_line_idx) {
+                    cli_cursor++;
+                    cliPrintf("\x1B[C"); // 터미널 상의 화면 커서를 오른쪽으로 이동
                 }
             }
             
@@ -229,6 +281,7 @@ void cliInit(void)
     // 1. 변수들 초기화 (시스템 리셋 시 쓰레기값 방지)
     cli_cmd_count = 0;
     cli_line_idx = 0;
+    cli_cursor = 0; // 커서 위치 초기화
     
     // 2. 운영체제의 'help' 또는 '?' 처럼, 가장 기본이 되는 명령어를 자동 등록
     cliAdd("help", cliHelp);
