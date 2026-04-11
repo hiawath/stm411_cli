@@ -191,6 +191,28 @@ void cliSys(uint8_t argc, char **argv)
     }
 }
 
+void cliButton(uint8_t argc, char **argv)
+{
+    if (argc == 2)
+    {
+        if (strcmp(argv[1], "on") == 0)
+        {
+            buttonEnable(true);
+            cliPrintf("Button Interrupt Report: ON\r\n");
+        }
+        else if (strcmp(argv[1], "off") == 0)
+        {
+            buttonEnable(false);
+            cliPrintf("Button Interrupt Report: OFF\r\n");
+        }
+    }
+    else
+    {
+        cliPrintf("Usage: button [on/off]\r\n");
+        cliPrintf("Current Status: %s\r\n", buttonGetEnable() ? "ON" : "OFF");
+    }
+}
+
 
 void apInit(void)
 {
@@ -200,6 +222,7 @@ void apInit(void)
     cliAdd("sys", cliSys);
     cliAdd("gpio", cliGpio); // GPIO 읽기/쓰기 커맨드 등록
     cliAdd("md", cliMd); // 메모리 덤프 커맨드 등록
+    cliAdd("button", cliButton); // 버튼 보고 제어 등록
 }
 
 void apMain(void)

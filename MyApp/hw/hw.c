@@ -8,4 +8,5 @@ void hwInit(void){
     ledInit();
     uartInit();
     cliInit();
+    buttonInit();
 }
