@@ -242,15 +242,30 @@ void cliTemp(uint8_t argc, char **argv)
     if (argc == 1)
     {
         // 1회 단독 측정 수행 (자동 모드 끄기)
+        if (temp_read_period > 0) {
+            tempStopAuto(); // 기존 자동 모드가 켜져있었다면 DMA 끄기
+        }
         temp_read_period = 0; 
-        float t = tempRead();
+        
+        float t = tempReadSingle(); // 1회만 Polling으로 전력 아껴서 읽음
         cliPrintf("Current Temp: %.2f *C\r\n", t);
     }
     else if (argc == 2)
     {
+        if (strcmp(argv[1], "off") == 0 || strcmp(argv[1], "stop") == 0)
+        {
+            temp_read_period = 0;
+            tempStopAuto();
+            cliPrintf("Temperature Auto-Read Stopped\r\n");
+            return;
+        }
+
         int period = atoi(argv[1]);
         if (period > 0)
         {
+            if (temp_read_period == 0) {
+                tempStartAuto(); // DMA Continuous 모드 가동!
+            }
             temp_read_period = period;
             cliPrintf("Temperature Auto-Read Started (%d ms)\r\n", period);
         }
@@ -263,6 +278,7 @@ void cliTemp(uint8_t argc, char **argv)
     {
         cliPrintf("Usage: temp\r\n");
         cliPrintf("       temp [period_ms]\r\n");
+        cliPrintf("       temp off\r\n");
     }
 }
 
@@ -298,7 +314,8 @@ void tempSystemTask(void *argument)
 {
     while(1) {
         if (temp_read_period > 0) {
-            float t = tempRead();
+            // 이미 켜진 DMA 버퍼에서 값만 쏙 빼와서 출력 (Zero Overhead)
+            float t = tempReadAuto();
             cliPrintf("Current Temp: %.2f *C\r\n", t);
             osDelay(temp_read_period); 
         } else {

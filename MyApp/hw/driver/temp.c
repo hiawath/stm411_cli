@@ -2,25 +2,45 @@
 #include "adc.h" // CubeMX 자동 생성 헤더 (hadc1 선언 포함)
 
 // DMA가 지속적으로 값을 갱신할 버퍼 (값 1개)
-static volatile uint32_t adc_dma_buf[1];
+static volatile uint32_t adc_dma_buf[1] = {0};
 
 bool tempInit(void)
 {
-    // CubeMX가 초기화한 ADC1을 기반으로, DMA 연동 모드를 백그라운드에서 백그라운드에서 영구 구동시킵니다.
-    // Continuous 모드와 Circular DMA 모드가 섞여있으므로, CPU 개입 없이 adc_dma_buf[0]에 값이 실시간 갱신됩니다.
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_dma_buf, 1);
+    // 초기에는 전력 소모를 막기 위해 DMA를 켜지 않습니다.
     return true;
 }
 
-float tempRead(void)
+void tempStartAuto(void)
 {
-    // 1. DMA가 백그라운드에서 실시간으로 갱신해둔 데이터(0~4095)를 딜레이 없이 획득
+    // DMA Continuous 모드 시작
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_dma_buf, 1);
+}
+
+void tempStopAuto(void)
+{
+    // DMA 완전 정지 (ADC 전력 절약)
+    HAL_ADC_Stop_DMA(&hadc1);
+}
+
+float tempReadAuto(void)
+{
     uint32_t adc_val = adc_dma_buf[0];
-    
-    // 2. STM32F411 온도 공식 적용
     float vsense = ((float)adc_val / 4095.0f) * 3.3f;
-    float temp_celsius = ((vsense - 0.76f) / 0.0025f) + 25.0f;
+    return ((vsense - 0.76f) / 0.0025f) + 25.0f;
+}
+
+float tempReadSingle(void)
+{
+    uint32_t adc_val = 0;
     
-    // 블로킹(Polling) 로직 제거됨! 오버헤드 0%
-    return temp_celsius;
+    // DMA 없이 Polling 방식으로 딱 1회 전력을 소모하여 읽음
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        adc_val = HAL_ADC_GetValue(&hadc1);
+    }
+    HAL_ADC_Stop(&hadc1);
+    
+    float vsense = ((float)adc_val / 4095.0f) * 3.3f;
+    return ((vsense - 0.76f) / 0.0025f) + 25.0f;
 }
