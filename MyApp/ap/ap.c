@@ -235,6 +235,36 @@ void cliButton(uint8_t argc, char **argv)
     }
 }
 
+static uint32_t temp_read_period = 0; // 주기(ms) 0이면 주기적 동작 멈춤
+
+void cliTemp(uint8_t argc, char **argv)
+{
+    if (argc == 1)
+    {
+        // 1회 단독 측정 수행 (자동 모드 끄기)
+        temp_read_period = 0; 
+        float t = tempRead();
+        cliPrintf("Current Temp: %.2f *C\r\n", t);
+    }
+    else if (argc == 2)
+    {
+        int period = atoi(argv[1]);
+        if (period > 0)
+        {
+            temp_read_period = period;
+            cliPrintf("Temperature Auto-Read Started (%d ms)\r\n", period);
+        }
+        else
+        {
+            cliPrintf("Invalid Period\r\n");
+        }
+    }
+    else
+    {
+        cliPrintf("Usage: temp\r\n");
+        cliPrintf("       temp [period_ms]\r\n");
+    }
+}
 
 void apInit(void)
 {
@@ -245,6 +275,7 @@ void apInit(void)
     cliAdd("gpio", cliGpio); // GPIO 읽기/쓰기 커맨드 등록
     cliAdd("md", cliMd); // 메모리 덤프 커맨드 등록
     cliAdd("button", cliButton); // 버튼 보고 제어 등록
+    cliAdd("temp", cliTemp); // 온도 센서 명령 등록
 }
 
 #include "cmsis_os.h"
@@ -254,11 +285,23 @@ void ledSystemTask(void *argument)
 {
     while(1) {
         if (led_toggle_period > 0) {
-            // 사용자가 주기를 지시했을 때만 작동
             ledToggle();
             osDelay(led_toggle_period); 
         } else {
-            // 멈춤(0) 상태일 때는 다른 태스크에 방해 안되게 무한히 쉬면서 지시 대기
+            osDelay(50);
+        }
+    }
+}
+
+// 📌 백그라운드 온도 센서 태스크
+void tempSystemTask(void *argument)
+{
+    while(1) {
+        if (temp_read_period > 0) {
+            float t = tempRead();
+            cliPrintf("Current Temp: %.2f *C\r\n", t);
+            osDelay(temp_read_period); 
+        } else {
             osDelay(50);
         }
     }
@@ -274,7 +317,12 @@ void apMain(void)
     
     osThreadNew(ledSystemTask, NULL, &led_attr);
 
-    // 센서 감지, 통신 등 여러 기능이 있다면 여기서 전부 `osThreadNew`로 찍어냅니다.
+    osThreadAttr_t temp_attr = {0};
+    temp_attr.name = "TEMP_Task";
+    temp_attr.stack_size = 256 * 4; // float 계산 및 printf 스택 공간 고려
+    temp_attr.priority = osPriorityNormal; // CLI 태스크와 유사한 중요성
+    
+    osThreadNew(tempSystemTask, NULL, &temp_attr);
 
     // 2. 부트스트랩 목적으로 실행된 현재 태스크는 이제 완전히 "CLI 전용 태스크"로 역할이 전환됩니다.
     while(1)

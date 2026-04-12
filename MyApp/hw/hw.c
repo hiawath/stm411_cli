@@ -9,4 +9,5 @@ void hwInit(void){
     uartInit();
     cliInit();
     buttonInit();
+    tempInit();
 }

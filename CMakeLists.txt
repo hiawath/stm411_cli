@@ -43,6 +43,12 @@ add_subdirectory(cmake/stm32cubemx)
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
+
+# 링커 옵션 설정 부분에 추가
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -u _printf_float
+)
+
 file(GLOB_RECURSE SRC_FILES "MyApp/*.c")
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
