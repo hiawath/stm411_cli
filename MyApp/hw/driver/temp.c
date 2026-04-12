@@ -1,38 +1,26 @@
 #include "temp.h"
 #include "adc.h" // CubeMX 자동 생성 헤더 (hadc1 선언 포함)
 
+// DMA가 지속적으로 값을 갱신할 버퍼 (값 1개)
+static volatile uint32_t adc_dma_buf[1];
+
 bool tempInit(void)
 {
-    // CubeMX가 main.c에서 MX_ADC1_Init()을 호출하여 하드웨어를 이미 초기화했습니다.
-    // 추가적인 소프트웨어 필터나 구조체 초기화가 필요하다면 여기서 수행합니다.
+    // CubeMX가 초기화한 ADC1을 기반으로, DMA 연동 모드를 백그라운드에서 백그라운드에서 영구 구동시킵니다.
+    // Continuous 모드와 Circular DMA 모드가 섞여있으므로, CPU 개입 없이 adc_dma_buf[0]에 값이 실시간 갱신됩니다.
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_dma_buf, 1);
     return true;
 }
 
 float tempRead(void)
 {
-    uint32_t adc_val = 0;
-    float temp_celsius = 0.0f;
+    // 1. DMA가 백그라운드에서 실시간으로 갱신해둔 데이터(0~4095)를 딜레이 없이 획득
+    uint32_t adc_val = adc_dma_buf[0];
     
-    // 1. ADC 변환 1회 수행
-    HAL_ADC_Start(&hadc1);
+    // 2. STM32F411 온도 공식 적용
+    float vsense = ((float)adc_val / 4095.0f) * 3.3f;
+    float temp_celsius = ((vsense - 0.76f) / 0.0025f) + 25.0f;
     
-    // 2. 변환이 끝날 때까지 대기 (타임아웃 10ms)
-    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
-    {
-        // 3. 변환된 12bit(0~4095) 원시 데이터 획득
-        adc_val = HAL_ADC_GetValue(&hadc1);
-        
-        // 4. STM32F411 온도 공식 적용
-        //   - 동작 전압 통상 3.3V
-        //   - 25도일 때의 전압 V25 = 0.76 V (스펙시트 참고)
-        //   - 온도 기울기 Avg_Slope = 2.5 mV/C = 0.0025 V/C
-        
-        float vsense = ((float)adc_val / 4095.0f) * 3.3f;
-        temp_celsius = ((vsense - 0.76f) / 0.0025f) + 25.0f;
-    }
-    
-    // 5. ADC 변환 중지
-    HAL_ADC_Stop(&hadc1);
-    
+    // 블로킹(Polling) 로직 제거됨! 오버헤드 0%
     return temp_celsius;
 }
