@@ -1,43 +1,30 @@
 // MyApp/hw/driver/cli.c
 #include "cli.h"
+#include "cli_priv.h"  // 내부 전용 자료구조 및 매크로 포함
 #include "uart.h"
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <string.h> // strncpy를 사용하기 위해 필요
 
-#define CLI_LINE_BUF_MAX      256  
-
-#define CLI_CMD_LIST_MAX      32
-#define CLI_CMD_ARG_MAX       4
-
-typedef struct {
-    char cmd_str[16];
-    void (*cmd_func)(uint8_t argc, char **argv);
-} cli_cmd_t;
+// ============================================
+// 정적(Static) 변수 할당 공간
+// ============================================
 
 // 등록된 커맨드들을 담아둘 배열
 static cli_cmd_t cli_cmd_list[CLI_CMD_LIST_MAX]; 
 static uint8_t   cli_cmd_count = 0;
 
-// 파싱이 끝난 인자를 담보할 배열 (ex: argv[0]="led", argv[1]="on")
+// 파싱이 끝난 인자를 담아둘 배열 (ex: argv[0]="led", argv[1]="on")
 static uint8_t   cli_argc = 0; 
 static char*     cli_argv[CLI_CMD_ARG_MAX]; 
 static char      cli_line_buf[CLI_LINE_BUF_MAX]; 
 static uint16_t  cli_line_idx = 0; // 총 담긴 글자 수 저장
 static uint16_t  cli_cursor = 0;   // 현재 깜빡이는 논리적 커서 위치
 
-#define CLI_HIST_MAX 10
 static char      cli_hist_buf[CLI_HIST_MAX][CLI_LINE_BUF_MAX]; // 10개까지 기억하는 2차원 히스토리 버퍼
 static uint8_t   cli_hist_count = 0;   // 현재 저장된 히스토리 개수 (최대 10)
 static uint8_t   cli_hist_write = 0;   // 다음 데이터를 저장할 배열 인덱스
 static uint8_t   cli_hist_depth = 0;   // 위/아래 방향키를 누를 때 어느 과거를 보고 있는지 추적하는 변수
-
-typedef enum {
-    CLI_STATE_NORMAL = 0,
-    CLI_STATE_ESC_RCVD,
-    CLI_STATE_BRACKET_RCVD
-} cli_input_state_t;
 
 static cli_input_state_t input_state = CLI_STATE_NORMAL;
 
