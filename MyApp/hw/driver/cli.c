@@ -165,39 +165,43 @@ static void processAnsiEscape(uint8_t rx_data)
 
 void cliMain(void)
 {
-    if (uartAvailable(0) == 0) return;
+    uint8_t rx_data;
     
-    uint8_t rx_data = uartRead(0);
-    
-    // 1. 방향키 (ANSI 이스케이프) 파싱 중일 때
-    if (input_state != CLI_STATE_NORMAL) 
+    // Polling 제거: 데이터가 들어올 때까지 무한 대기 (Blocking)
+    // CPU 점유율이 0%로 떨어지고 컨텍스트 스위칭 효율이 극대화됩니다.
+    // 0xFFFFFFFF는 CMSIS-RTOS의 osWaitForever 매크로와 동일한 값입니다.
+    if (uartReadBlock(0, &rx_data, 0xFFFFFFFF) == true)
     {
-        processAnsiEscape(rx_data);
-        return;
-    }
-    
-    // 2. 일반 문자 입력 처리 (Normal State)
-    switch (rx_data) 
-    {
-        case 0x1B: // ESC 시작
-            input_state = CLI_STATE_ESC_RCVD;
-            break;
-            
-        case '\r': // ENTER 키
-            handleEnterKey();
-            break;
-            
-        case '\b': // 백스페이스
-        case 127:
-            handleBackspace();
-            break;
-            
-        default:   // 일반 텍스트 타자
-            if (rx_data >= 32 && rx_data <= 126) 
-            {
-                handleCharInsert(rx_data);
-            }
-            break;
+        // 1. 방향키 (ANSI 이스케이프) 파싱 중일 때
+        if (input_state != CLI_STATE_NORMAL) 
+        {
+            processAnsiEscape(rx_data);
+            return;
+        }
+        
+        // 2. 일반 문자 입력 처리 (Normal State)
+        switch (rx_data) 
+        {
+            case 0x1B: // ESC 시작
+                input_state = CLI_STATE_ESC_RCVD;
+                break;
+                
+            case '\r': // ENTER 키
+                handleEnterKey();
+                break;
+                
+            case '\b': // 백스페이스
+            case 127:
+                handleBackspace();
+                break;
+                
+            default:   // 일반 텍스트 타자
+                if (rx_data >= 32 && rx_data <= 126) 
+                {
+                    handleCharInsert(rx_data);
+                }
+                break;
+        }
     }
 }
 
