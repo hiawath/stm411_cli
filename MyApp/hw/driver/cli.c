@@ -1,6 +1,7 @@
 // MyApp/hw/driver/cli.c
 #include "cli.h"
-#include "cli_priv.h"  // 내부 전용 자료구조 및 매크로 포함
+#include "cli_priv.h"  
+#include "cli_history.h" // 히스토리 전담 모듈 추가
 #include "uart.h"
 #include <string.h>
 #include <stdarg.h>
@@ -20,11 +21,6 @@ static char*     cli_argv[CLI_CMD_ARG_MAX];
 static char      cli_line_buf[CLI_LINE_BUF_MAX]; 
 static uint16_t  cli_line_idx = 0; // 총 담긴 글자 수 저장
 static uint16_t  cli_cursor = 0;   // 현재 깜빡이는 논리적 커서 위치
-
-static char      cli_hist_buf[CLI_HIST_MAX][CLI_LINE_BUF_MAX]; // 10개까지 기억하는 2차원 히스토리 버퍼
-static uint8_t   cli_hist_count = 0;   // 현재 저장된 히스토리 개수 (최대 10)
-static uint8_t   cli_hist_write = 0;   // 다음 데이터를 저장할 배열 인덱스
-static uint8_t   cli_hist_depth = 0;   // 위/아래 방향키를 누를 때 어느 과거를 보고 있는지 추적하는 변수
 
 static cli_input_state_t input_state = CLI_STATE_NORMAL;
 
@@ -109,11 +105,7 @@ static void handleEnterKey(void)
     {
         cli_line_buf[cli_line_idx] = '\0';
         
-        strncpy(cli_hist_buf[cli_hist_write], cli_line_buf, CLI_LINE_BUF_MAX - 1);
-        cli_hist_write = (cli_hist_write + 1) % CLI_HIST_MAX;
-        if (cli_hist_count < CLI_HIST_MAX) cli_hist_count++;
-        cli_hist_depth = 0; 
-        
+        cliHistoryPush(cli_line_buf); // 과거 기록 버퍼에 밀어넣기
         cliParseArgs(cli_line_buf); 
         cliRunCommand();
     }
@@ -164,13 +156,10 @@ static void handleArrowKeys(uint8_t rx_data)
         
         if (rx_data == 'A') // 위 화살표
         {
-            if (cli_hist_depth < cli_hist_count) 
+            if (cliHistoryGetPrev(cli_line_buf)) 
             {
-                cli_hist_depth++; 
                 for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
                 
-                int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
-                strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
                 cli_line_idx = strlen(cli_line_buf);
                 cli_cursor = cli_line_idx;
                 cliPrintf("%s", cli_line_buf);
@@ -178,22 +167,13 @@ static void handleArrowKeys(uint8_t rx_data)
         }
         else if (rx_data == 'B') // 아래 화살표
         {
-            if (cli_hist_depth > 0)
+            if (cliHistoryGetNext(cli_line_buf))
             {
-                cli_hist_depth--; 
                 for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
                 
-                if (cli_hist_depth == 0) {
-                    cli_line_buf[0] = '\0';
-                    cli_line_idx = 0;
-                    cli_cursor = 0;
-                } else {
-                    int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
-                    strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
-                    cli_line_idx = strlen(cli_line_buf);
-                    cli_cursor = cli_line_idx;
-                    cliPrintf("%s", cli_line_buf);
-                }
+                cli_line_idx = strlen(cli_line_buf);
+                cli_cursor = cli_line_idx;
+                cliPrintf("%s", cli_line_buf);
             }
         }
     }
@@ -299,6 +279,9 @@ void cliInit(void)
     cli_cmd_count = 0;
     cli_line_idx = 0;
     cli_cursor = 0; // 커서 위치 초기화
+    
+    // 외부 히스토리 모듈 초기화
+    cliHistoryInit();
     
     // 2. 운영체제의 'help' 또는 '?' 처럼, 가장 기본이 되는 명령어를 자동 등록
     cliAdd("help", cliHelp);
