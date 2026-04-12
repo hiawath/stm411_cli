@@ -33,7 +33,13 @@ static uint8_t   cli_hist_count = 0;   // 현재 저장된 히스토리 개수 (
 static uint8_t   cli_hist_write = 0;   // 다음 데이터를 저장할 배열 인덱스
 static uint8_t   cli_hist_depth = 0;   // 위/아래 방향키를 누를 때 어느 과거를 보고 있는지 추적하는 변수
 
-static uint8_t   esc_state = 0;        // 방향키(ANSI Escape) 파싱을 위한 상태 변수
+typedef enum {
+    CLI_STATE_NORMAL = 0,
+    CLI_STATE_ESC_RCVD,
+    CLI_STATE_BRACKET_RCVD
+} cli_input_state_t;
+
+static cli_input_state_t input_state = CLI_STATE_NORMAL;
 
 void cliPrintf(char *fmt, ...)
 {
@@ -47,6 +53,7 @@ void cliPrintf(char *fmt, ...)
 
     uartWrite(0, (uint8_t *)buf, len); // 무조건 터미널이 연결된 채널(0)으로 쏨
 }
+
 // 예: line_buf가 "led on" 이라면 
 void cliParseArgs(char *line_buf)
 {
@@ -64,6 +71,7 @@ void cliParseArgs(char *line_buf)
         tok = strtok(NULL, " ");  // 다음 단어 찾기
     }
 }
+
 // 결과: cli_argc는 2, cli_argv[0]은 "led", cli_argv[1]은 "on"을 가리킵니다.
 void cliRunCommand(void)
 {
@@ -89,165 +97,187 @@ void cliRunCommand(void)
         cliPrintf("Command Not Found\r\n");
     }
 }
-void cliMain(void)
+
+// === 리팩토링된 CLI 핸들러 함수들 ===
+
+static void cliRedrawTail(void) 
 {
-    if (uartAvailable(0) > 0)
+    for (int i = cli_cursor; i < cli_line_idx; i++) {
+        cliPrintf("%c", cli_line_buf[i]);
+    }
+    cliPrintf(" \b"); // 흔적 지우기
+    
+    for (int i = 0; i < (cli_line_idx - cli_cursor); i++) {
+        cliPrintf("\b");
+    }
+}
+
+static void handleEnterKey(void)
+{
+    // 커서를 맨 끝으로 보냄
+    for (int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
+    cliPrintf("\r\n"); 
+    
+    if (cli_line_idx > 0) 
     {
-        uint8_t rx_data = uartRead(0);
+        cli_line_buf[cli_line_idx] = '\0';
         
-        // 1. 일반 문자 입력 상태 (방향키 등의 ESC 시퀀스가 아닐 때)
-        if (esc_state == 0) 
+        strncpy(cli_hist_buf[cli_hist_write], cli_line_buf, CLI_LINE_BUF_MAX - 1);
+        cli_hist_write = (cli_hist_write + 1) % CLI_HIST_MAX;
+        if (cli_hist_count < CLI_HIST_MAX) cli_hist_count++;
+        cli_hist_depth = 0; 
+        
+        cliParseArgs(cli_line_buf); 
+        cliRunCommand();
+    }
+    
+    cliPrintf("CLI> ");
+    cli_line_idx = 0;
+    cli_cursor = 0;
+}
+
+static void handleBackspace(void)
+{
+    if (cli_cursor == 0) return;
+    
+    for (int i = cli_cursor; i < cli_line_idx; i++) {
+        cli_line_buf[i - 1] = cli_line_buf[i];
+    }
+    cli_line_idx--;
+    cli_cursor--;
+    
+    cliPrintf("\b"); 
+    cliRedrawTail();
+}
+
+static void handleCharInsert(uint8_t c)
+{
+    if (cli_line_idx >= CLI_LINE_BUF_MAX - 1) return;
+    
+    for (int i = cli_line_idx; i > cli_cursor; i--) {
+        cli_line_buf[i] = cli_line_buf[i - 1];
+    }
+    
+    cli_line_buf[cli_cursor] = c;
+    cli_line_idx++;
+    cli_cursor++;
+    
+    cliPrintf("%c", c);
+    if (cli_cursor < cli_line_idx) {
+        cliRedrawTail();
+    }
+}
+
+static void handleArrowKeys(uint8_t rx_data)
+{
+    if (rx_data == 'A' || rx_data == 'B') 
+    {
+        for(int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
+        cli_cursor = cli_line_idx; // 동기화
+        
+        if (rx_data == 'A') // 위 화살표
         {
-            if (rx_data == 0x1B) // ESC 키값 수신 (방향키의 시작)
+            if (cli_hist_depth < cli_hist_count) 
             {
-                esc_state = 1;
-            }
-            else if (rx_data == '\r') // 엔터키
-            {
-                 // 현재 커서가 문자 중간에 있다면 명령어 깨짐 방지를 위해 터미널 커서를 맨 끝으로 보냄
-                 for (int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
-                 cliPrintf("\r\n"); 
-                 
-                 if (cli_line_idx > 0) 
-                 {
-                     cli_line_buf[cli_line_idx] = '\0';
-                     
-                     // 실행하기 전에 히스토리 버퍼에 복사 (기록)
-                     strncpy(cli_hist_buf[cli_hist_write], cli_line_buf, CLI_LINE_BUF_MAX - 1);
-                     cli_hist_write = (cli_hist_write + 1) % CLI_HIST_MAX; // 인덱스를 0~9 빙글빙글 돌리기
-                     if (cli_hist_count < CLI_HIST_MAX) cli_hist_count++;
-                     cli_hist_depth = 0; // 엔터를 치면 탐색 깊이 초기화
-                     
-                     cliParseArgs(cli_line_buf); 
-                     cliRunCommand();
-                 }
-                 
-                 cliPrintf("CLI> ");
-                 cli_line_idx = 0;
-                 cli_cursor = 0;
-            }
-            else if (rx_data == '\b' || rx_data == 127) // 백스페이스
-            {
-                 if (cli_cursor > 0) {
-                     // 1. 메모리 버퍼에서 문자 하나 지우고 앞으로 당기기
-                     for (int i = cli_cursor; i < cli_line_idx; i++) {
-                         cli_line_buf[i - 1] = cli_line_buf[i];
-                     }
-                     cli_line_idx--;
-                     cli_cursor--;
-                     
-                     // 2. 터미널 화면 갱신: 한 칸 뒤로 간 뒤, 그 뒤의 문자들을 다시 출력
-                     cliPrintf("\b"); 
-                     for (int i = cli_cursor; i < cli_line_idx; i++) {
-                         cliPrintf("%c", cli_line_buf[i]);
-                     }
-                     cliPrintf(" "); // 제일 끝의 흔적 지우기
-                     
-                     // 3. 타자를 치기 위해 커서를 원래 있어야 할 자리로 복구
-                     for (int i = 0; i <= (cli_line_idx - cli_cursor); i++) {
-                         cliPrintf("\b");
-                     }
-                 }
-            }
-            else // 일반 문자 수신
-            {
-                 // 중간 삽입(Insert) 가능 로직
-                 if (cli_line_idx < CLI_LINE_BUF_MAX - 1) {
-                     // 1. 우측으로 배열 밀기 (새 글자가 들어갈 공간 확보)
-                     for (int i = cli_line_idx; i > cli_cursor; i--) {
-                         cli_line_buf[i] = cli_line_buf[i - 1];
-                     }
-                     
-                     // 2. 입력받은 문자를 커서 위치에 바로 박아넣음
-                     cli_line_buf[cli_cursor] = rx_data;
-                     cli_line_idx++;
-                     cli_cursor++;
-                     
-                     // 3. 밀어낸 글자들을 포함하여 화면 다시 그리기
-                     for (int i = cli_cursor - 1; i < cli_line_idx; i++) {
-                         cliPrintf("%c", cli_line_buf[i]);
-                     }
-                     
-                     // 4. 다시 글자를 치던 원래 커서 위치로 복귀
-                     for (int i = 0; i < (cli_line_idx - cli_cursor); i++) {
-                         cliPrintf("\b");
-                     }
-                 }
+                cli_hist_depth++; 
+                for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
+                
+                int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
+                strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
+                cli_line_idx = strlen(cli_line_buf);
+                cli_cursor = cli_line_idx;
+                cliPrintf("%s", cli_line_buf);
             }
         }
-        // 2. ESC[ 상태 트리거 여부 확인
-        else if (esc_state == 1) 
+        else if (rx_data == 'B') // 아래 화살표
         {
-            if (rx_data == '[') esc_state = 2;
-            else esc_state = 0; // 이상한 값이면 상태 초기화
-        }
-        // 3. 방향키 판별 (A: 위, B: 아래, C: 우, D: 좌)
-        else if (esc_state == 2) 
-        {
-            if (rx_data == 'A' || rx_data == 'B') 
+            if (cli_hist_depth > 0)
             {
-                // 글자를 지우거나 덮어쓰기 위해, 커서가 중간에 있다면 맨 뒤로 밀어줍니다.
-                for(int i = cli_cursor; i < cli_line_idx; i++) cliPrintf("\x1B[C");
-                cli_cursor = cli_line_idx; // 동기화
-            }
-            
-            if (rx_data == 'A') // 위 화살표
-            {
-                if (cli_hist_depth < cli_hist_count) 
-                {
-                    cli_hist_depth++; // 한 단계 더 과거로
-                    
-                    for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
-                    
+                cli_hist_depth--; 
+                for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
+                
+                if (cli_hist_depth == 0) {
+                    cli_line_buf[0] = '\0';
+                    cli_line_idx = 0;
+                    cli_cursor = 0;
+                } else {
                     int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
-                    
                     strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
                     cli_line_idx = strlen(cli_line_buf);
-                    cli_cursor = cli_line_idx; // 불러온 다음 커서는 맨 끝에 위치
-                    
+                    cli_cursor = cli_line_idx;
                     cliPrintf("%s", cli_line_buf);
                 }
             }
-            else if (rx_data == 'B') // 아래 화살표
-            {
-                if (cli_hist_depth > 0)
-                {
-                    cli_hist_depth--; // 다시 미래(최신) 쪽으로 
-                    
-                    for(int i = 0; i < cli_line_idx; i++) cliPrintf("\b \b");
-                    
-                    if (cli_hist_depth == 0) {
-                        cli_line_buf[0] = '\0';
-                        cli_line_idx = 0;
-                        cli_cursor = 0;
-                    } else {
-                        int idx = (cli_hist_write - cli_hist_depth + CLI_HIST_MAX) % CLI_HIST_MAX;
-                        strncpy(cli_line_buf, cli_hist_buf[idx], CLI_LINE_BUF_MAX - 1);
-                        cli_line_idx = strlen(cli_line_buf);
-                        cli_cursor = cli_line_idx;
-                        cliPrintf("%s", cli_line_buf);
-                    }
-                }
-            }
-            else if (rx_data == 'D') // 왼쪽 화살표
-            {
-                if (cli_cursor > 0) {
-                    cli_cursor--;
-                    cliPrintf("\x1B[D"); // 터미널 상의 화면 커서를 왼쪽으로 이동
-                }
-            }
-            else if (rx_data == 'C') // 오른쪽 화살표
-            {
-                if (cli_cursor < cli_line_idx) {
-                    cli_cursor++;
-                    cliPrintf("\x1B[C"); // 터미널 상의 화면 커서를 오른쪽으로 이동
-                }
-            }
-            
-            esc_state = 0; // 처리 완료 후 다시 일반 문자 모드로
+        }
+    }
+    else if (rx_data == 'D') // 왼쪽 화살표
+    {
+        if (cli_cursor > 0) {
+            cli_cursor--;
+            cliPrintf("\x1B[D"); 
+        }
+    }
+    else if (rx_data == 'C') // 오른쪽 화살표
+    {
+        if (cli_cursor < cli_line_idx) {
+            cli_cursor++;
+            cliPrintf("\x1B[C"); 
         }
     }
 }
+
+static void processAnsiEscape(uint8_t rx_data)
+{
+    if (input_state == CLI_STATE_ESC_RCVD) 
+    {
+        if (rx_data == '[') input_state = CLI_STATE_BRACKET_RCVD;
+        else input_state = CLI_STATE_NORMAL;
+    }
+    else if (input_state == CLI_STATE_BRACKET_RCVD) 
+    {
+        handleArrowKeys(rx_data);
+        input_state = CLI_STATE_NORMAL; 
+    }
+}
+
+void cliMain(void)
+{
+    if (uartAvailable(0) == 0) return;
+    
+    uint8_t rx_data = uartRead(0);
+    
+    // 1. 방향키 (ANSI 이스케이프) 파싱 중일 때
+    if (input_state != CLI_STATE_NORMAL) 
+    {
+        processAnsiEscape(rx_data);
+        return;
+    }
+    
+    // 2. 일반 문자 입력 처리 (Normal State)
+    switch (rx_data) 
+    {
+        case 0x1B: // ESC 시작
+            input_state = CLI_STATE_ESC_RCVD;
+            break;
+            
+        case '\r': // ENTER 키
+            handleEnterKey();
+            break;
+            
+        case '\b': // 백스페이스
+        case 127:
+            handleBackspace();
+            break;
+            
+        default:   // 일반 텍스트 타자
+            if (rx_data >= 32 && rx_data <= 126) 
+            {
+                handleCharInsert(rx_data);
+            }
+            break;
+    }
+}
+
 
 
 
