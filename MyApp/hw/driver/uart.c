@@ -5,8 +5,9 @@
 
 extern UART_HandleTypeDef huart2;
 
-// 큐 핸들
+// 큐 및 뮤텍스 핸들
 static osMessageQueueId_t uart_rx_q = NULL;
+static osMutexId_t uart_tx_mutex = NULL; // UART 송신 보호용 Mutex
 
 static uint8_t rx_data; // 인터럽트 수신용 1바이트 임시 변수
 
@@ -14,6 +15,10 @@ bool uartInit(void) {
   // FreeRTOS 메세지 큐 생성 (크기 256, 단위 1바이트)
   if (uart_rx_q == NULL) {
       uart_rx_q = osMessageQueueNew(256, sizeof(uint8_t), NULL);
+  }
+  // FreeRTOS Mutex 생성
+  if (uart_tx_mutex == NULL) {
+      uart_tx_mutex = osMutexNew(NULL);
   }
   return uartOpen(0, 9600);
 }
@@ -42,12 +47,25 @@ bool uartOpen(uint8_t ch, uint32_t baud) {
 }
 
 uint32_t uartWrite(uint8_t ch, uint8_t *p_data, uint32_t length) {
+  uint32_t ret = 0;
+  
   if (ch == 0) // 논리 채널 0 (또는 _DEF_UART1) 을 UART2로 맵핑
   {
-    if (HAL_UART_Transmit(&huart2, p_data, length, 100) == HAL_OK)
-      return length;
+    // UART 사용 권한을 획득할 때까지 대기 (Thread Safety)
+    if (uart_tx_mutex != NULL) {
+        osMutexAcquire(uart_tx_mutex, osWaitForever);
+    }
+    
+    if (HAL_UART_Transmit(&huart2, p_data, length, 100) == HAL_OK) {
+        ret = length;
+    }
+    
+    // UART 사용이 끝나면 열쇠 반환
+    if (uart_tx_mutex != NULL) {
+        osMutexRelease(uart_tx_mutex);
+    }
   }
-  return 0;
+  return ret;
 }
 
 uint32_t uartPrintf(uint8_t ch, char *fmt, ...) {
