@@ -173,6 +173,7 @@ void cliMain(void)
     if (uartReadBlock(0, &rx_data, 0xFFFFFFFF) == true)
     {
         // 1. 방향키 (ANSI 이스케이프) 파싱 중일 때
+       
         if (input_state != CLI_STATE_NORMAL) 
         {
             processAnsiEscape(rx_data);
