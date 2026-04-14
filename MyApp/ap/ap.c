@@ -8,6 +8,7 @@
 #define LOG_TAG "AP"
 #include "log.h"
 #include "log_def.h"
+#include "monitor.h" // 신규 모니터링 시스템 추가
 
 void cliGpio(uint8_t argc, char **argv) {
   if (argc >= 3) {
@@ -151,6 +152,9 @@ void cliLed(uint8_t argc, char **argv) {
         cliPrintf("LED TOGGLED ONCE\r\n");
       }
     }
+    // LED 상태 즉시 업데이트
+    bool led_state = ledGetStatus();
+    monitorUpdateValue(ID_OUT_LED_STATE, TYPE_BOOL, &led_state);
   } else {
     cliPrintf("Usage: led [on|off]\r\n");
     cliPrintf("       led toggle\r\n");
@@ -243,6 +247,7 @@ void apInit(void) {
   LOG_INF("Application Init... Started");
   cliInit(); // CLI 엔진 기본 세팅
   logInit();
+  monitorInit(); // 모니터링 시스템 스레드 락 및 변수 초기화
 
   cliAdd("led", cliLed); // "터미널에서 led 치면 cliLed 함수 실행해 줘" 등록
   cliAdd("info", cliInfo);
@@ -261,10 +266,16 @@ void ledSystemTask(void *argument) {
     if (led_toggle_period > 0) {
       LOG_DBG("LED Toggle!");
       ledToggle();
+      
+      bool led_state = ledGetStatus();
+      monitorUpdateValue(ID_OUT_LED_STATE, TYPE_BOOL, &led_state);
+
       osDelay(led_toggle_period);
 
     } else {
-      osDelay(50);
+      bool led_state = ledGetStatus();
+      monitorUpdateValue(ID_OUT_LED_STATE, TYPE_BOOL, &led_state);
+      osDelay(100);
     }
   }
 }
@@ -283,12 +294,30 @@ void tempSystemTask(void *argument) {
         LOG_WRN("High Temperature Alert: %.2f *C", t);
       }
 
-      cliPrintf("Current Temp: %.2f *C\r\n", t);
+      // 모니터 시스템에 현재 온도값을 갱신 (전략 1)
+      monitorUpdateValue(ID_ENV_TEMP, TYPE_FLOAT, &t);
+      
+      // 사람을 위한 텍스트 모드일 때만 출력
+      if (!isMonitoringOn()) {
+          cliPrintf("Current Temp: %.2f *C\r\n", t);
+      }
+      
       osDelay(temp_read_period);
     } else {
       osDelay(50);
     }
   }
+}
+
+// 📌 20ms 고속 모니터링 전용 송신 태스크 (전략 2)
+void monitorSystemTask(void *argument) {
+    while (1) {
+        if (isMonitoringOn()) {
+            // 현재 스냅샷에 찍힌 모든 센서들의 값을 TLV 패킷으로 조립하여 UART로 고속 블라스트!
+            monitorSendPacket();
+        }
+        osDelay(2000); // 20ms 주기 (50Hz)
+    }
 }
 
 void apMain(void) {
@@ -306,6 +335,14 @@ void apMain(void) {
   temp_attr.priority = osPriorityNormal; // CLI 태스크와 유사한 중요성
 
   osThreadNew(tempSystemTask, NULL, &temp_attr);
+
+  // 고속 모니터링 스트리밍 태스크 생성
+  osThreadAttr_t monitor_attr = {0};
+  monitor_attr.name = "MONITOR_Task";
+  monitor_attr.stack_size = 256 * 4; 
+  monitor_attr.priority = osPriorityAboveNormal; // 전송 지연을 막기 위함
+  
+  osThreadNew(monitorSystemTask, NULL, &monitor_attr);
 
   // 2. 부트스트랩 목적으로 실행된 현재 태스크는 이제 완전히 "CLI 전용 태스크"로
   // 역할이 전환됩니다.

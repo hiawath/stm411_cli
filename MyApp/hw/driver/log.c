@@ -1,4 +1,5 @@
 #include "log.h"
+#include "monitor.h"
 #include "cli_parser.h"
 #include "log_def.h"
 #include "cli.h"
@@ -63,6 +64,12 @@ uint8_t logGetRuntimeLevel(void)
 // 로그 포맷 출력을 위한 전용 printf (uartWrite 호출)
 void logPrintf(const char *fmt, ...)
 {
+    // [중요] 바이너리 모니터링 모드 중에는 텍스트 로그가 전송되어
+    // 통신 패킷을 오염시키는 것을 방지합니다.
+    if (isMonitoringOn() == true) {
+        return;
+    }
+
     char buf[256];
     va_list args;
     int len;
