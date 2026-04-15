@@ -11,3 +11,4 @@
 
 void apMain(void);
 void apInit(void);
+void apStopAutoTasks(void);

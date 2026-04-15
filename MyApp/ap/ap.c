@@ -313,6 +313,14 @@ void cliTemp(uint8_t argc, char **argv)
     }
 }
 
+void apStopAutoTasks(void)
+{
+    led_toggle_period = 0;
+    temp_read_period = 0;
+    tempStopAuto();
+    ledOff();
+}
+
 void apInit(void)
 {
     LOG_INF("Application Init... Started");

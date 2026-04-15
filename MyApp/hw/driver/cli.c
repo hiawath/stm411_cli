@@ -4,6 +4,7 @@
 #include "cli_history.h" 
 #include "cli_parser.h"  // 파서 모듈 추가
 #include "uart.h"
+#include "ap.h"
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -183,6 +184,13 @@ void cliMain(void)
         // 2. 일반 문자 입력 처리 (Normal State)
         switch (rx_data) 
         {
+            case 0x03: // Ctrl+C
+                apStopAutoTasks();
+                cliPrintf("^C\r\nCLI> ");
+                cli_line_idx = 0;
+                cli_cursor = 0;
+                break;
+
             case 0x1B: // ESC 시작
                 input_state = CLI_STATE_ESC_RCVD;
                 break;
