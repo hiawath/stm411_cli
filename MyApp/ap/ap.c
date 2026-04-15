@@ -325,6 +325,7 @@ void apInit(void)
 {
     LOG_INF("Application Init... Started");
     cliInit(); // CLI 엔진 기본 세팅
+    cliSetCtrlCHandler(apStopAutoTasks); // Ctrl+C 핸들러 등록 (DIP)
     logInit();
     monitorInit(); // 모니터링 시스템 스레드 락 및 변수 초기화
 

@@ -4,8 +4,11 @@
 #include "hw_def.h"
 #include "cli_parser.h"
 
+typedef void (*cli_callback_t)(void);
+
 void cliInit(void);
 void cliMain(void);
 void cliPrintf(char *fmt, ...);
+void cliSetCtrlCHandler(cli_callback_t handler);
 
 #endif

@@ -4,7 +4,6 @@
 #include "cli_history.h" 
 #include "cli_parser.h"  // 파서 모듈 추가
 #include "uart.h"
-#include "ap.h"
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -24,6 +23,7 @@ typedef enum {
 } cli_input_state_t;
 
 static cli_input_state_t input_state = CLI_STATE_NORMAL;
+static cli_callback_t     ctrl_c_handler = NULL;
 
 void cliPrintf(char *fmt, ...)
 {
@@ -185,7 +185,7 @@ void cliMain(void)
         switch (rx_data) 
         {
             case 0x03: // Ctrl+C
-                apStopAutoTasks();
+                if (ctrl_c_handler != NULL) ctrl_c_handler();
                 cliPrintf("^C\r\nCLI> ");
                 cli_line_idx = 0;
                 cli_cursor = 0;
@@ -223,8 +223,14 @@ void cliInit(void)
     // 버퍼 초기화
     cli_line_idx = 0;
     cli_cursor = 0;
+    ctrl_c_handler = NULL;
     
     // 하위 모듈들 초기화
     cliHistoryInit();
     cliParserInit(); 
+}
+
+void cliSetCtrlCHandler(cli_callback_t handler)
+{
+    ctrl_c_handler = handler;
 }
