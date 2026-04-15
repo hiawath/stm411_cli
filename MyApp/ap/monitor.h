@@ -2,7 +2,11 @@
 #define MYAPP_AP_MONITOR_H_
 
 #include "def.h"
+#include "hw_def.h"
 
+#include "cli.h"
+#include "uart.h"
+#include "log.h"
 // ==========================================
 // 프로토콜 정의
 // ==========================================

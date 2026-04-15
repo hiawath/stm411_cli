@@ -4,10 +4,9 @@
 #include "log_def.h"
 #include "cli.h"
 #include "uart.h"
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "stdio.h"
+#include "string.h"
+#include "stdlib.h"
 
 static uint8_t runtime_log_level = 3; // 기본값: INFO (3)
 

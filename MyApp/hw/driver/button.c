@@ -1,5 +1,7 @@
+#include "hw_def.h"
 #include "button.h"
-#include "cli.h"
+#include "log_def.h"
+
 
 static bool is_enabled = false;
 
@@ -26,6 +28,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     // main.h에 정의된 B1_Pin (GPIO_PIN_13) 확인
     if (GPIO_Pin == B1_Pin)
     {
-        cliPrintf("\r\n[Button] B1 Pressed!\r\nCLI> ");
+        LOG_INF("B1 Pressed!");
     }
 }

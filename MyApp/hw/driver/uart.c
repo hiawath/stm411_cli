@@ -1,7 +1,5 @@
 #include "uart.h"
-#include "cmsis_os.h" // FreeRTOS Message Queue을 위해 추가
-#include <stdarg.h>
-#include <stdio.h>
+#include "hw_def.h"
 
 extern UART_HandleTypeDef huart2;
 
