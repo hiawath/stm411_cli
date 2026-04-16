@@ -12,3 +12,4 @@
 void apMain(void);
 void apInit(void);
 void apStopAutoTasks(void);
+void apSyncPeriods(uint32_t period);

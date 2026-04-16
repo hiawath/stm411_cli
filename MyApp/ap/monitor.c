@@ -12,6 +12,7 @@ typedef enum {
 static monitor_packet_t g_packet;
 static osMutexId_t monitor_mtx = NULL;
 static monitor_mode_t current_monitor_mode = MONITOR_MODE_OFF;
+static monitor_sync_cb_t sync_handler = NULL;
 
 // 체크섬 계산용 단순 8비트 XOR
 static uint8_t calcChecksum(uint8_t *data, uint32_t len) {
@@ -22,38 +23,72 @@ static uint8_t calcChecksum(uint8_t *data, uint32_t len) {
     return sum;
 }
 
+static uint32_t monitor_period = 1000;
+
 // ==========================================
 // CLI 제어
 // ==========================================
-static void cliMonitor(uint8_t argc, char **argv) {
-    if (argc >= 2) {
-        if (strcmp(argv[1], "on") == 0) {
-            if (argc == 3 && strcmp(argv[2], "ascii") == 0) {
-                current_monitor_mode = MONITOR_MODE_ASCII;
-                cliPrintf("Monitoring Mode: ON (ASCII) (Text logs will be suppressed)\r\n");
-            } else {
-                current_monitor_mode = MONITOR_MODE_BINARY;
-                cliPrintf("Monitoring Mode: ON (Binary) (Text logs will be suppressed)\r\n");
+static void cliMonitor(uint8_t argc, char **argv)
+{
+    if (argc >= 2)
+    {
+        if (strcmp(argv[1], "on") == 0)
+        {
+            monitor_mode_t next_mode = MONITOR_MODE_ASCII; // 기본은 ASCII
+            uint32_t next_period = monitor_period;
+
+            if (argc >= 3)
+            {
+                // 숫자가 바로 오면 ASCII 모드의 주기로 간주
+                next_period = atoi(argv[2]);
             }
+
+            if (next_period < 10)
+                next_period = 10; // 최소 10ms 제한
+
+            current_monitor_mode = next_mode;
+            monitor_period = next_period;
+
+            if (sync_handler != NULL)
+                sync_handler(monitorGetPeriod());
+            cliPrintf("All tasks synchronized to monitor period: %d ms\r\n", monitor_period);
+
+            cliPrintf("Monitoring Mode: ON (%s)\r\n",
+                      (current_monitor_mode == MONITOR_MODE_ASCII) ? "ASCII" : "Binary");
+            cliPrintf("Monitoring Period: %d ms\r\n", monitor_period);
             return;
-        } 
-        else if (strcmp(argv[1], "off") == 0) {
+        }
+        else if (strcmp(argv[1], "sync") == 0)
+        {
+            if (sync_handler != NULL)
+                sync_handler(monitorGetPeriod());
+            cliPrintf("All tasks synchronized to monitor period: %d ms\r\n", monitor_period);
+            return;
+        }
+        else if (strcmp(argv[1], "off") == 0)
+        {
             current_monitor_mode = MONITOR_MODE_OFF;
             cliPrintf("Monitoring Mode: OFF (Text Mode Restored)\r\n");
             return;
         }
     }
-    
-    cliPrintf("Usage: monitor [on|on ascii|off]\r\n");
-    if (current_monitor_mode == MONITOR_MODE_ASCII) {
-        cliPrintf("Current Mode: ON (ASCII)\r\n");
-    } else if (current_monitor_mode == MONITOR_MODE_BINARY) {
-        cliPrintf("Current Mode: ON (Binary)\r\n");
-    } else {
+
+    cliPrintf("Usage: monitor on [period_ms]\r\n");
+    cliPrintf("       monitor on bin [period_ms]\r\n");
+    cliPrintf("       monitor off\r\n");
+    cliPrintf("       monitor sync\r\n");
+
+    if (current_monitor_mode != MONITOR_MODE_OFF)
+    {
+        cliPrintf("Current Mode: ON (%s), Period: %d ms\r\n",
+                  (current_monitor_mode == MONITOR_MODE_ASCII) ? "ASCII" : "Binary",
+                  monitor_period);
+    }
+    else
+    {
         cliPrintf("Current Mode: OFF (Text)\r\n");
     }
 }
-
 
 // ==========================================
 // 시스템 API
@@ -68,8 +103,23 @@ void monitorInit(void) {
     cliAdd("monitor", cliMonitor);
 }
 
+void monitorOff(void){
+    current_monitor_mode=MONITOR_MODE_OFF;
+}
 bool isMonitoringOn(void) {
     return (current_monitor_mode != MONITOR_MODE_OFF);
+}
+
+void monitorSetSyncHandler(monitor_sync_cb_t handler) {
+    sync_handler = handler;
+}
+
+uint32_t monitorGetPeriod(void) {
+    return monitor_period;
+}
+
+void monitorSetPeriod(uint32_t period) {
+    monitor_period = period;
 }
 
 void monitorUpdateValue(SensorID id, DataType type, void *p_val) {
@@ -149,17 +199,15 @@ void monitorSendPacket(void) {
         char tx_buf[512] = {0};
         int len = 0;
         
-        // 시작 문자 $
-        len += snprintf(tx_buf + len, sizeof(tx_buf) - len, "$");
+        // 시작 문자 $ 및 데이터 개수(Count) 전송
+        len += snprintf(tx_buf + len, sizeof(tx_buf) - len, "$%d", g_packet.count);
         
         for (int i = 0; i < g_packet.count; i++) {
             uint8_t id = g_packet.nodes[i].id;
             uint8_t type = g_packet.nodes[i].type;
             
-            // 구분자 추가 (첫 노드 제외)
-            if (i > 0) {
-                len += snprintf(tx_buf + len, sizeof(tx_buf) - len, ",");
-            }
+            // 데이터 구분자 추가
+            len += snprintf(tx_buf + len, sizeof(tx_buf) - len, ",");
             
             len += snprintf(tx_buf + len, sizeof(tx_buf) - len, "%d:%d:", id, type);
             

@@ -315,10 +315,31 @@ void cliTemp(uint8_t argc, char **argv)
 
 void apStopAutoTasks(void)
 {
+    monitorOff();
     led_toggle_period = 0;
     temp_read_period = 0;
     tempStopAuto();
     ledOff();
+}
+
+void apSyncPeriods(uint32_t period)
+{
+    if (period > 0)
+    {
+        // 1. 온도 센서 주기 업데이트 및 자원 재기동(필요시)
+        tempStartAuto();
+        temp_read_period = period;
+
+        // 2. LED 토글 주기 업데이트
+        led_toggle_period = period;
+
+        LOG_INF("Tasks Synchronized to %d ms", period);
+    }
+    else
+    {
+        temp_read_period = 0;
+        led_toggle_period = 0;
+    }
 }
 
 void apInit(void)
@@ -326,6 +347,7 @@ void apInit(void)
     LOG_INF("Application Init... Started");
     cliInit(); // CLI 엔진 기본 세팅
     cliSetCtrlCHandler(apStopAutoTasks); // Ctrl+C 핸들러 등록 (DIP)
+    monitorSetSyncHandler(apSyncPeriods); // 모니터 동기화 핸들러 등록 (DIP)
     logInit();
     monitorInit(); // 모니터링 시스템 스레드 락 및 변수 초기화
 
@@ -366,9 +388,7 @@ void ledSystemTask(void *argument)
         }
         else
         {
-            bool led_state = ledGetStatus();
-            monitorUpdateValue(ID_OUT_LED_STATE, TYPE_BOOL, &led_state);
-            osDelay(100);
+         osDelay(100);
         }
     }
 }
@@ -420,7 +440,11 @@ void monitorSystemTask(void *argument)
             // 블라스트!
             monitorSendPacket();
         }
-        osDelay(2000); // 20ms 주기 (50Hz)
+        else{
+
+
+        }
+        osDelay(monitorGetPeriod()); 
     }
 }
 

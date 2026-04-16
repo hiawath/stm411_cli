@@ -88,8 +88,15 @@ typedef struct {
 void monitorInit(void);
 void monitorUpdateValue(SensorID id, DataType type, void *p_val);
 void monitorSendPacket(void);
+void monitorOff(void);
 
 // 외부 모듈이 송신중단(Mute) 상태인지 확인하기 위한 Getter
 bool isMonitoringOn(void);
+
+uint32_t monitorGetPeriod(void);
+void monitorSetPeriod(uint32_t period);
+
+typedef void (*monitor_sync_cb_t)(uint32_t period);
+void monitorSetSyncHandler(monitor_sync_cb_t handler);
 
 #endif /* MYAPP_AP_MONITOR_H_ */
